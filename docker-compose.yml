@@ -1,4 +1,5 @@
 version: '3.8'
+
 services:
   # PostgreSQL база данных
   postgres:
@@ -9,7 +10,7 @@ services:
       POSTGRES_PASSWORD: secure_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
     healthcheck:
@@ -35,9 +36,9 @@ services:
     environment:
       DATABASE_URL: postgresql://warehouse_user:secure_password@postgres:5432/warehouse_db
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: your_jwt_secret_key
+      JWT_SECRET: your_jwt_secret_key_change_in_production
       AI_API_KEY: your_ai_api_key
-      AI_SERVICE: openai # или yandex, local
+      AI_SERVICE: local
     ports:
       - "3000:3000"
     depends_on:
@@ -47,6 +48,7 @@ services:
         condition: service_healthy
     volumes:
       - ./uploads:/app/uploads
+    restart: unless-stopped
 
   # Frontend приложение
   frontend:
@@ -58,6 +60,7 @@ services:
       - "80:80"
     depends_on:
       - backend
+    restart: unless-stopped
 
   # Эмулятор роботов для тестирования
   robot_emulator:
@@ -65,9 +68,10 @@ services:
     environment:
       API_URL: http://backend:3000
       ROBOTS_COUNT: 5
-      UPDATE_INTERVAL: 10 # секунды
+      UPDATE_INTERVAL: 10
     depends_on:
       - backend
+    restart: unless-stopped
 
 volumes:
   postgres_data:
