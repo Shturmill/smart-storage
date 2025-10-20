@@ -6,8 +6,8 @@ WORKDIR /app
 # Копирование package.json и package-lock.json
 COPY package*.json ./
 
-# Установка зависимостей
-RUN npm ci --only=production
+# Установка зависимостей (используем npm install вместо npm ci)
+RUN npm install --only=production
 
 # Копирование исходного кода
 COPY . .
@@ -18,8 +18,8 @@ RUN npm run build
 # Этап продакшена
 FROM nginx:alpine
 
-# Копирование собранного приложения
-COPY --from=build /app/dist /usr/share/nginx/html
+# Копирование собранного приложения (React создает папку build, а не dist)
+COPY --from=build /app/build /usr/share/nginx/html
 
 # Копирование конфигурации nginx
 COPY nginx.conf /etc/nginx/nginx.conf

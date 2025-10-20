@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker, Session, relationship
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timedelta
-import jwt
+from jose import jwt
 import bcrypt
 import csv
 import io
@@ -179,7 +179,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             raise HTTPException(status_code=401, detail="User not found")
         
         return user
-    except jwt.PyJWTError:
+    except jwt.JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 # Создание таблиц
@@ -498,82 +498,5 @@ async def import_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
         
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=400, detail=f"Ошибка обработки CSV: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Ошибка обработки CSV:){str(e)}")
     
-    return CSVUploadResponse(
-        success=success_count,
-        failed=failed_count,
-        errors=errors
-    )
-
-@app.post("/api/ai/predict", response_model=AIPredictionResponse)
-async def get_ai_predictions(
-    request: AIPredictionRequest,
-    db: Session = Depends(get_db)
-):
-    # Простая mock-реализация ИИ прогнозов
-    # В реальном приложении здесь был бы вызов к ИИ-сервису
-    
-    products = db.query(Product).all()
-    predictions = []
-    
-    for product in products:
-        # Получаем историю товара
-        history = db.query(InventoryHistory).filter(
-            InventoryHistory.product_id == product.id
-        ).order_by(InventoryHistory.scanned_at.desc()).limit(10).all()
-        
-        if history:
-            # Простой алгоритм прогнозирования
-            current_stock = history[0].quantity
-            avg_daily_consumption = 2  # Упрощенное предположение
-            
-            days_until_stockout = current_stock // avg_daily_consumption if avg_daily_consumption > 0 else 999
-            recommended_order = max(product.optimal_stock - current_stock, 0)
-            
-            predictions.append({
-                "product_id": product.id,
-                "product_name": product.name,
-                "current_stock": current_stock,
-                "days_until_stockout": days_until_stockout,
-                "recommended_order": recommended_order
-            })
-    
-    # Сортируем по критичности
-    predictions.sort(key=lambda x: x["days_until_stockout"])
-    
-    return AIPredictionResponse(
-        predictions=predictions[:5],  # Топ-5 критических товаров
-        confidence=0.87
-    )
-
-@app.get("/api/export/excel")
-async def export_excel(ids: str = None, db: Session = Depends(get_db)):
-    # В реальном приложении здесь был бы экспорт в Excel
-    # Пока возвращаем JSON
-    query = db.query(InventoryHistory)
-    
-    if ids:
-        id_list = [int(id) for id in ids.split(',')]
-        query = query.filter(InventoryHistory.id.in_(id_list))
-    
-    items = query.all()
-    
-    export_data = []
-    for item in items:
-        product = db.query(Product).filter(Product.id == item.product_id).first()
-        export_data.append({
-            "Дата": item.scanned_at.strftime("%Y-%m-%d %H:%M:%S"),
-            "Робот": item.robot_id,
-            "Зона": f"{item.zone}-{item.row_number}",
-            "Артикул": item.product_id,
-            "Товар": product.name if product else "Неизвестный товар",
-            "Количество": item.quantity,
-            "Статус": item.status
-        })
-    
-    return {"data": export_data, "format": "excel"}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=3000)

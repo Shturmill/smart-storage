@@ -1,5 +1,11 @@
 -- Инициализация базы данных для системы "Умный склад"
 
+-- Создание базы данных
+CREATE DATABASE IF NOT EXISTS warehouse_db;
+
+-- Подключение к новой базе данных
+\c warehouse_db;
+
 -- Пользователи системы
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
