@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Search, Filter, Download, RefreshCw } from 'lucide-react';
 import StatusBadge from './StatusBadge';
 
@@ -15,45 +15,38 @@ const HistoryPage = () => {
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [selectedRows, setSelectedRows] = useState([]);
 
-  // Моковые данные для демонстрации
-  const historyData = [
-    {
-      id: 1,
-      date: '2024-03-15 14:32:15',
-      robotId: 'RB-001',
-      zone: 'A-12',
-      sku: 'TEL-4567',
-      product: 'Роутер RT-AC68U',
-      expected: 50,
-      actual: 45,
-      difference: -5,
-      status: 'OK'
-    },
-    {
-      id: 2,
-      date: '2024-03-15 14:32:08',
-      robotId: 'RB-002',
-      zone: 'B-5',
-      sku: 'TEL-8901',
-      product: 'Модем DSL-2640U',
-      expected: 20,
-      actual: 12,
-      difference: -8,
-      status: 'LOW'
-    },
-    {
-      id: 3,
-      date: '2024-03-15 14:31:55',
-      robotId: 'RB-004',
-      zone: 'D-15',
-      sku: 'TEL-2345',
-      product: 'Коммутатор SG-108',
-      expected: 10,
-      actual: 5,
-      difference: -5,
-      status: 'CRITICAL'
-    }
-  ];
+  const [historyData, setHistoryData] = useState([]);
+  const [total, setTotal] = useState(0);
+
+  const fetchHistory = async () => {
+    const params = new URLSearchParams();
+    if (filters.dateFrom) params.set('from', filters.dateFrom);
+    if (filters.dateTo) params.set('to', filters.dateTo);
+    if (filters.zones.length === 1) params.set('zone', filters.zones[0]);
+    // statuses and search could be used server-side if supported
+    params.set('page', String(page));
+    params.set('limit', String(rowsPerPage));
+    const resp = await fetch(`/api/inventory/history?${params.toString()}`);
+    const data = await resp.json();
+    setTotal(data.total || 0);
+    setHistoryData((data.items || []).map(item => ({
+      id: item.id,
+      date: item.date,
+      robotId: item.robot_id,
+      zone: item.zone,
+      sku: item.sku,
+      product: item.product,
+      expected: item.expected,
+      actual: item.actual,
+      difference: item.difference,
+      status: item.status
+    })));
+  };
+
+  useEffect(() => {
+    fetchHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.dateFrom, filters.dateTo, filters.zones, page, rowsPerPage]);
 
   const summaryStats = {
     totalChecks: 1247,
@@ -82,8 +75,18 @@ const HistoryPage = () => {
     }
   };
 
-  const handleExport = (format) => {
-    console.log(`Экспорт в ${format} для записей:`, selectedRows);
+  const handleExport = async (format) => {
+    if (format === 'excel' && selectedRows.length > 0) {
+      const ids = selectedRows.join(',');
+      const resp = await fetch(`/api/export/excel?ids=${ids}`);
+      const blob = await resp.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'inventory_export.xlsx';
+      a.click();
+      window.URL.revokeObjectURL(url);
+    }
   };
 
   return (
@@ -310,11 +313,11 @@ const HistoryPage = () => {
                 Назад
               </button>
               <span className="text-sm text-gray-700">
-                Страница {page + 1} из {Math.ceil(historyData.length / rowsPerPage)}
+                Страница {page + 1} из {Math.max(1, Math.ceil(total / rowsPerPage))}
               </span>
               <button 
-                onClick={() => setPage(Math.min(Math.ceil(historyData.length / rowsPerPage) - 1, page + 1))}
-                disabled={page >= Math.ceil(historyData.length / rowsPerPage) - 1}
+                onClick={() => setPage(Math.min(Math.max(1, Math.ceil(total / rowsPerPage)) - 1, page + 1))}
+                disabled={page >= Math.max(1, Math.ceil(total / rowsPerPage)) - 1}
                 className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Вперед

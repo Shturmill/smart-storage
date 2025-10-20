@@ -8,7 +8,7 @@ const LoginPage = ({ onLogin }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     
@@ -22,13 +22,25 @@ const LoginPage = ({ onLogin }) => {
     }
 
     setLoading(true);
-    setTimeout(() => {
-      const user = { name: 'Иван Петров', role: 'Оператор склада' };
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('token', 'mock_jwt_token');
-      onLogin(user);
+    try {
+      const resp = await fetch(`/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || 'Ошибка авторизации');
+      }
+      const data = await resp.json();
+      localStorage.setItem('user', JSON.stringify(data.user));
+      localStorage.setItem('token', data.token);
+      onLogin(data.user);
+    } catch (err) {
+      setError(err.message);
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   return (

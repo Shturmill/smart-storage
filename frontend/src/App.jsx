@@ -13,41 +13,19 @@ const App = () => {
   const [currentPage, setCurrentPage] = useState('login');
   const [user, setUser] = useState(null);
   const [isPaused, setIsPaused] = useState(false);
-  const [wsConnected, setWsConnected] = useState(true);
+  const [wsConnected, setWsConnected] = useState(false);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
 
-  // Моковые данные
-  const robots = [
-    { id: 'RB-001', zone: 'A', row: 12, shelf: 3, battery: 85, status: 'active' },
-    { id: 'RB-002', zone: 'B', row: 5, shelf: 2, battery: 45, status: 'active' },
-    { id: 'RB-003', zone: 'C', row: 8, shelf: 1, battery: 15, status: 'low_battery' },
-    { id: 'RB-004', zone: 'D', row: 15, shelf: 4, battery: 92, status: 'active' },
-    { id: 'RB-005', zone: 'A', row: 20, shelf: 5, battery: 0, status: 'offline' }
-  ];
-
-  const recentScans = [
-    { time: '14:32:15', robotId: 'RB-001', zone: 'A-12', product: 'Роутер RT-AC68U', sku: 'TEL-4567', quantity: 45, status: 'OK' },
-    { time: '14:32:08', robotId: 'RB-002', zone: 'B-5', product: 'Модем DSL-2640U', sku: 'TEL-8901', quantity: 12, status: 'LOW' },
-    { time: '14:31:55', robotId: 'RB-004', zone: 'D-15', product: 'Коммутатор SG-108', sku: 'TEL-2345', quantity: 5, status: 'CRITICAL' },
-    { time: '14:31:42', robotId: 'RB-001', zone: 'A-13', product: 'IP-телефон T46S', sku: 'TEL-6789', quantity: 28, status: 'OK' },
-    { time: '14:31:30', robotId: 'RB-003', zone: 'C-8', product: 'Кабель UTP Cat6', sku: 'TEL-3456', quantity: 15, status: 'LOW' }
-  ];
-
-  const aiPredictions = [
-    { product: 'Модем DSL-2640U', current: 12, daysUntil: 3, recommended: 50 },
-    { product: 'Коммутатор SG-108', current: 5, daysUntil: 1, recommended: 100 },
-    { product: 'IP-телефон T46S', current: 8, daysUntil: 2, recommended: 75 },
-    { product: 'Кабель UTP Cat6', current: 15, daysUntil: 4, recommended: 60 },
-    { product: 'Роутер RT-AC68U', current: 45, daysUntil: 7, recommended: 30 }
-  ];
-
-  const statistics = {
-    activeRobots: 4,
-    totalRobots: 5,
-    scannedToday: 1247,
-    criticalItems: 3,
-    avgBattery: 58
-  };
+  const [robots, setRobots] = useState([]);
+  const [recentScans, setRecentScans] = useState([]);
+  const [statistics, setStatistics] = useState({
+    activeRobots: 0,
+    totalRobots: 0,
+    scannedToday: 0,
+    criticalItems: 0,
+    avgBattery: 0
+  });
+  const [aiPredictions, setAiPredictions] = useState([]);
 
   // Проверка авторизации при загрузке
   useEffect(() => {
@@ -60,17 +38,40 @@ const App = () => {
     }
   }, []);
 
-  // WebSocket симуляция
+  // Подключение WebSocket и первичная загрузка данных
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (!isPaused && wsConnected) {
-        // Симуляция обновления данных
-        console.log('WebSocket update received');
-      }
-    }, 5000);
+    if (currentPage !== 'dashboard') return;
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${protocol}://${window.location.host}/api/ws/dashboard`);
+    ws.onopen = () => setWsConnected(true);
+    ws.onclose = () => setWsConnected(false);
+    ws.onerror = () => setWsConnected(false);
+    ws.onmessage = (event) => {
+      if (isPaused) return;
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'robot_update') {
+          // Приходят обновления — перезагружаем текущие данные
+          fetchDashboard();
+        }
+      } catch {}
+    };
+    fetchDashboard();
+    return () => ws.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, isPaused]);
 
-    return () => clearInterval(interval);
-  }, [isPaused, wsConnected]);
+  const fetchDashboard = async () => {
+    try {
+      const resp = await fetch(`/api/dashboard/current`);
+      const data = await resp.json();
+      setRobots(data.robots.map(r => ({ id: r.id, zone: r.current_zone, row: r.current_row, shelf: r.current_shelf, battery: r.battery_level, status: r.status })));
+      setRecentScans(data.recent_scans.map(s => ({ time: s.time, robotId: s.robot_id, zone: s.zone, product: s.product, sku: s.sku, quantity: s.quantity, status: s.status })));
+      setStatistics(data.statistics);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const handleLogin = (userData) => {
     setUser(userData);
@@ -92,14 +93,33 @@ const App = () => {
     setUploadModalOpen(true);
   };
 
-  const handleCSVUpload = (file) => {
-    console.log('Uploading CSV file:', file.name);
-    // Здесь будет логика загрузки файла
+  const handleCSVUpload = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    await fetch(`/api/inventory/import`, {
+      method: 'POST',
+      body: formData
+    });
+    fetchDashboard();
   };
 
-  const handleAIPredictionRefresh = () => {
-    console.log('Refreshing AI predictions...');
-    // Здесь будет вызов API для обновления прогнозов
+  const handleAIPredictionRefresh = async () => {
+    try {
+      const resp = await fetch(`/api/ai/predict`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period_days: 7, categories: [] })
+      });
+      const data = await resp.json();
+      setAiPredictions(
+        data.predictions.map(p => ({
+          product: p.product_name || p.product_id,
+          current: p.current_stock || 0,
+          daysUntil: p.days_until_stockout,
+          recommended: p.recommended_order_quantity
+        }))
+      );
+    } catch (e) { console.error(e); }
   };
 
   const DashboardPage = () => {

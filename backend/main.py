@@ -498,5 +498,59 @@ async def import_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
         
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=400, detail=f"Ошибка обработки CSV:){str(e)}")
+        raise HTTPException(status_code=400, detail=f"Ошибка обработки CSV: {str(e)}")
+    
+    return CSVUploadResponse(success=success_count, failed=failed_count, errors=errors)
+
+@app.post("/api/ai/predict", response_model=AIPredictionResponse)
+async def ai_predict(request: AIPredictionRequest, db: Session = Depends(get_db)):
+    # Простая мок-реализация прогнозов
+    products = db.query(Product).all()
+    predictions = []
+    for product in products[:5]:
+        predictions.append({
+            "product_id": product.id,
+            "product_name": product.name,
+            "current_stock": product.optimal_stock // 2,
+            "days_until_stockout": 3,
+            "recommended_order_quantity": max(0, product.optimal_stock - (product.optimal_stock // 2))
+        })
+    return AIPredictionResponse(predictions=predictions, confidence=0.82)
+
+from fastapi.responses import StreamingResponse
+from openpyxl import Workbook
+from io import BytesIO
+
+@app.get("/api/export/excel")
+async def export_excel(ids: str, db: Session = Depends(get_db)):
+    id_list = [int(x) for x in ids.split(',') if x.strip().isdigit()]
+    records = db.query(InventoryHistory).filter(InventoryHistory.id.in__(id_list)).all()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Inventory"
+    ws.append([
+        "ID", "Дата и время", "ID робота", "Зона", "Ряд", "Полка",
+        "SKU", "Количество", "Статус"
+    ])
+    for r in records:
+        ws.append([
+            r.id,
+            r.scanned_at.isoformat() if r.scanned_at else "",
+            r.robot_id,
+            r.zone,
+            r.row_number,
+            r.shelf_number,
+            r.product_id,
+            r.quantity,
+            r.status
+        ])
+
+    stream = BytesIO()
+    wb.save(stream)
+    stream.seek(0)
+    headers = {
+        "Content-Disposition": "attachment; filename=inventory_export.xlsx"
+    }
+    return StreamingResponse(stream, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
     
